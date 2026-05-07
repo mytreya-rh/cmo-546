@@ -311,22 +311,29 @@ func (r *Reconciler) processReconcileRequest(istiocsr *v1alpha1.IstioCSR, req ty
 	if err := r.reconcileIstioCSRDeployment(istiocsr, istioCSRCreateRecon); err != nil {
 		r.log.Error(err, "failed to reconcile IstioCSR deployment", "request", req)
 		if IsIrrecoverableError(err) {
-			if istiocsr.Status.SetCondition(v1alpha1.Degraded, metav1.ConditionTrue, v1alpha1.ReasonFailed, fmt.Sprintf("reconciliation failed with irrecoverable eror not retrying: %v", err)) ||
-				istiocsr.Status.SetCondition(v1alpha1.Ready, metav1.ConditionFalse, v1alpha1.ReasonReady, "") {
+			// Evaluate both SetCondition calls before OR-ing, so both conditions
+			// are always written on the first reconcile. Using || directly would
+			// short-circuit and skip the second call when the first returns true
+			// (i.e., when the condition is newly created).
+			degradedChanged := istiocsr.Status.SetCondition(v1alpha1.Degraded, metav1.ConditionTrue, v1alpha1.ReasonFailed, fmt.Sprintf("reconciliation failed with irrecoverable eror not retrying: %v", err))
+			readyChanged := istiocsr.Status.SetCondition(v1alpha1.Ready, metav1.ConditionFalse, v1alpha1.ReasonFailed, "")
+			if degradedChanged || readyChanged {
 				errUpdate = r.updateCondition(istiocsr, nil)
 			}
 			return ctrl.Result{}, errUpdate
 		} else {
-			if istiocsr.Status.SetCondition(v1alpha1.Degraded, metav1.ConditionFalse, v1alpha1.ReasonReady, "") ||
-				istiocsr.Status.SetCondition(v1alpha1.Ready, metav1.ConditionFalse, v1alpha1.ReasonInProgress, fmt.Sprintf("reconciliation failed, retrying: %v", err)) {
+			degradedChanged := istiocsr.Status.SetCondition(v1alpha1.Degraded, metav1.ConditionFalse, v1alpha1.ReasonReady, "")
+			readyChanged := istiocsr.Status.SetCondition(v1alpha1.Ready, metav1.ConditionFalse, v1alpha1.ReasonInProgress, fmt.Sprintf("reconciliation failed, retrying: %v", err))
+			if degradedChanged || readyChanged {
 				errUpdate = r.updateCondition(istiocsr, err)
 			}
 			return ctrl.Result{RequeueAfter: defaultRequeueTime}, fmt.Errorf("failed to reconcile %q IstioCSR deployment: %w", req, errUpdate)
 		}
 	}
 
-	if istiocsr.Status.SetCondition(v1alpha1.Degraded, metav1.ConditionFalse, v1alpha1.ReasonReady, "") ||
-		istiocsr.Status.SetCondition(v1alpha1.Ready, metav1.ConditionTrue, v1alpha1.ReasonReady, "reconciliation successful") {
+	degradedChanged := istiocsr.Status.SetCondition(v1alpha1.Degraded, metav1.ConditionFalse, v1alpha1.ReasonReady, "")
+	readyChanged := istiocsr.Status.SetCondition(v1alpha1.Ready, metav1.ConditionTrue, v1alpha1.ReasonReady, "reconciliation successful")
+	if degradedChanged || readyChanged {
 		errUpdate = r.updateCondition(istiocsr, nil)
 	}
 	return ctrl.Result{}, errUpdate
