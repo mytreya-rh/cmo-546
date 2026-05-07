@@ -1,0 +1,11 @@
+reviewers:
+  - swghosh
+  - TrilokGeer
+  - bharath-b-rh
+approvers:
+  - bharath-b-rh
+  - swghosh
+  - TrilokGeer
+emeritus_approvers:
+  - deads2k
+components: cert-manager-operator
