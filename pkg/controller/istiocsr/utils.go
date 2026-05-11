@@ -52,7 +52,32 @@ func (r *Reconciler) updateStatus(ctx context.Context, changed *v1alpha1.IstioCS
 		if err := r.Get(ctx, namespacedName, current); err != nil {
 			return fmt.Errorf("failed to fetch istiocsr.openshift.operator.io %q for status update: %w", namespacedName, err)
 		}
+
+		// Preserve existing conditions before overwriting status
+		existingConditions := make([]metav1.Condition, len(current.Status.Conditions))
+		copy(existingConditions, current.Status.Conditions)
+
 		changed.Status.DeepCopyInto(&current.Status)
+
+		// Merge conditions: preserve existing conditions that aren't being updated
+		if len(changed.Status.Conditions) == 0 {
+			// If no conditions in the update, preserve all existing ones
+			current.Status.Conditions = existingConditions
+		} else {
+			// Merge: keep new conditions and add existing ones that weren't updated
+			for _, existingCond := range existingConditions {
+				found := false
+				for _, newCond := range changed.Status.Conditions {
+					if newCond.Type == existingCond.Type {
+						found = true
+						break
+					}
+				}
+				if !found {
+					current.Status.Conditions = append(current.Status.Conditions, existingCond)
+				}
+			}
+		}
 
 		if err := r.StatusUpdate(ctx, current); err != nil {
 			return fmt.Errorf("failed to update istiocsr.openshift.operator.io %q status: %w", namespacedName, err)
